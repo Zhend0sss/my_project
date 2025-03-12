@@ -1,0 +1,604 @@
+import numpy as np
+import os
+
+from model_training import train_model, map_pars
+
+# from model_training import train_model
+
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+from sklearn.model_selection import train_test_split
+import tensorflow as tf
+import keras
+from keras._tf_keras.keras.models import Sequential
+from keras._tf_keras.keras.layers import Dense, Dropout, Flatten, BatchNormalization, Activation
+from keras._tf_keras.keras.layers import Conv2D, MaxPooling2D
+from keras._tf_keras.keras.constraints import MaxNorm
+from keras._tf_keras.keras.utils import to_categorical
+from keras._tf_keras.keras.datasets import cifar100
+import matplotlib.pyplot as plt
+import sqlite3
+from PIL import Image
+import pickle
+import random
+
+dir_labelme = "C:\\Users\\savel\\Desktop\\datasets\\archive"
+dir_food = "C:\\Users\\savel\\Desktop\\datasets\\archive (2)"
+dir_coltech = 'C:\\Users\\savel\\Desktop\\datasets\\archive (1)\\256_ObjectCategories'
+path_y_train_labelme = "C:\\Users\\savel\\Downloads\\y_train_labelme.npy"
+path_y_test_labelme = "C:\\Users\\savel\\Downloads\\y_test_labelme.npy"
+path_BD = "C:\\Users\\savel\\Desktop\\BD.db"
+# lst_cls = ['person', 'car', 'building', 'window','tree', 'sign', 'door', 'bookshelf', 'chair', 'table', 'keyboard', 'head']
+conn = sqlite3.connect(path_BD)
+c = conn.cursor()
+
+
+def col_fin_id(id, num_cl):
+    x = np.array([])
+    y = np.array([])
+    c.execute(f"SELECT classword, dataset FROM classes WHERE id = {id}")
+    lst_fetch = c.fetchall()
+    classword, dataset = lst_fetch[0][0], lst_fetch[0][1]
+
+    c.execute(f"SELECT path FROM {dataset} WHERE classword = '{classword}'")
+    lst = c.fetchall()
+    if not lst:
+        return
+    for el in lst:
+        path = el[0]
+        # if not path.endswith('.npy'):
+        #     pict = Image.open(path)
+        #     pict = pict.resize((32, 32))
+        #     pict = np.array(pict)
+        #     pict = pict.astype('float32')
+        #     pict = pict / 255.0
+        # else:
+        pict = np.load(path)
+
+        if len(np.shape(pict)) < 3:
+            continue
+        if len(x) == 0:
+            x = np.expand_dims(pict, axis=0)
+        else:
+            x = np.append(x, np.expand_dims(pict, axis=0), axis=0)
+        if len(y) == 0:
+            y = np.array([np.array([num_cl])])
+        else:
+            y = np.append(y, np.array([np.array([num_cl])]), axis=0)
+
+    # print(len(x))
+    # print(len(y))
+
+    return train_test_split(x, y, train_size=0.8, random_state=42)
+
+
+def col_clwd(classword, num_cl):
+    # c.execute(f"SELECT classword, dataset FROM classes WHERE id = {id}")
+    # lst_fetch = c.fetchall()
+    # classword, dataset = lst_fetch[0][0], lst_fetch[0][1]
+    x_tr = np.array([])
+    x_tst = np.array([])
+    y_tr = np.array([])
+    y_tst = np.array([])
+    c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{classword}"')
+    l = len(c.fetchall())
+    if l == 0:
+        c.execute(f'SELECT class_id FROM class_classword WHERE classword = "{classword}"')
+        for el in c.fetchall():
+            id = el[0]
+            if len(x_tr) == 0:
+                x_tr, x_tst, y_tr, y_tst = col_fin_id(id, num_cl)
+            else:
+                x_train, x_test, y_train, y_test = col_fin_id(id, num_cl)
+                x_tr = np.append(x_train, x_tr, axis=0)
+                x_tst = np.append(x_test, x_tst, axis=0)
+                y_tr = np.append(y_train, y_tr, axis=0)
+                y_tst = np.append(y_test, y_tst, axis=0)
+
+        if len(x_tr) > map_pars['cut_size']:
+            x_tr = x_tr[:map_pars['cut_size']]
+            y_tr = y_tr[:map_pars['cut_size']]
+        if len(x_tst) > map_pars['cut_size']:
+            x_tst = x_tst[:map_pars['cut_size']]
+            y_tst = y_tst[:map_pars['cut_size']]
+        return [x_tr, x_tst, y_tr, y_tst]
+    else:
+        c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{classword}"')
+        for el in c.fetchall():
+            clswrd = el[0]
+            x_train, x_test, y_train, y_test = col_clwd(clswrd, num_cl)
+            if len(x_tr) == 0:
+                x_tr, x_tst, y_tr, y_tst = x_train, x_test, y_train, y_test
+            else:
+                x_tr = np.append(x_train, x_tr, axis=0)
+                x_tst = np.append(x_test, x_tst, axis=0)
+                y_tr = np.append(y_train, y_tr, axis=0)
+                y_tst = np.append(y_test, y_tst, axis=0)
+
+
+        if classword not in ['st', 'wild_animals', 'pets', 'fish', 'flowers', 'food_containers', 'fruit', 'vegetables', 'electronic_devices', 'furniture', 'insects', 'buildings', 'nature', 'people', 'trees', 'vehicles']:
+            c.execute(f'SELECT class_id FROM class_classword WHERE classword = "{classword}"')
+            for el in c.fetchall():
+                id = el[0]
+                if len(x_tr) == 0:
+                    x_tr, x_tst, y_tr, y_tst = col_fin_id(id, num_cl)
+                else:
+                    x_train, x_test, y_train, y_test = col_fin_id(id, num_cl)
+                    x_tr = np.append(x_train, x_tr, axis=0)
+                    x_tst = np.append(x_test, x_tst, axis=0)
+                    y_tr = np.append(y_train, y_tr, axis=0)
+                    y_tst = np.append(y_test, y_tst, axis=0)
+
+        return [x_tr, x_tst, y_tr, y_tst]
+
+
+def col_for_model(classword):
+    c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{classword}"')
+
+    lst_classwords = []
+    for el in c.fetchall():
+        lst_classwords.append(el[0])
+
+    x_train_org = np.array([])
+    x_test_org = np.array([])
+    y_train_org = np.array([])
+    y_test_org = np.array([])
+    num_cls = len(lst_classwords)
+
+    for i in range(num_cls):
+        clswrd = lst_classwords[i]
+        # if clswrd != 'clutter':
+        c.execute(f'DELETE FROM classword_num_in_model WHERE classword = "{clswrd}"')
+        c.execute(f'INSERT INTO classword_num_in_model (classword, num_in_model) VALUES (?, ?)', (classword, i))
+        x_train, x_test, y_train, y_test = col_clwd(clswrd, i)
+
+        random.shuffle(x_train)
+        random.shuffle(x_test)
+
+        if len(x_train) > map_pars['cut_size']:
+            x_train = x_train[:map_pars['cut_size']]
+            y_train = y_train[:map_pars['cut_size']]
+        if len(x_test) > map_pars['cut_size']:
+            x_test = x_test[:map_pars['cut_size']]
+            y_test = y_test[:map_pars['cut_size']]
+
+        if len(x_train_org) == 0:
+            x_train_org = x_train
+            x_test_org = x_test
+            y_train_org = y_train
+            y_test_org = y_test
+        else:
+            x_train_org = np.append(x_train, x_train_org, axis=0)
+            x_test_org = np.append(x_test, x_test_org, axis=0)
+            y_train_org = np.append(y_train, y_train_org, axis=0)
+            y_test_org = np.append(y_test, y_test_org, axis=0)
+
+        # print(clswrd)
+        # print(len(x_train))
+        # print(len(x_test))
+
+    return [x_train_org, x_test_org, y_train_org, y_test_org]
+
+
+def class_others(classword, num_cls):
+    x_train = np.array([])
+    x_test = np.array([])
+    y_train = np.array([])
+    y_test = np.array([])
+
+    c.execute(f'SELECT class_id FROM class_classword WHERE classword = "{classword}"')
+    for el in c.fetchall():
+        id = el[0]
+        if len(x_train) == 0:
+            x_train, x_test, y_train, y_test = col_fin_id(id, num_cls - 1)
+        else:
+            x_tr, x_tst, y_tr, y_tst = col_fin_id(id, num_cls - 1)
+            x_train = np.append(x_train, x_tr, axis=0)
+            x_test = np.append(x_test, x_tst, axis=0)
+            y_train = np.append(y_train, y_tr, axis=0)
+            y_test = np.append(y_test, y_tst, axis=0)
+
+    random.shuffle(x_train)
+    random.shuffle(x_test)
+
+    if len(x_train) > map_pars['cut_size']:
+        x_train = x_train[:map_pars['cut_size']]
+        y_train = y_train[:map_pars['cut_size']]
+    if len(x_test) > map_pars['cut_size']:
+        x_test = x_test[:map_pars['cut_size']]
+        y_test = y_test[:map_pars['cut_size']]
+
+    return [x_train, x_test, y_train, y_test]
+
+
+def recur_col_for_model(classword):
+    x_train, x_test, y_train, y_test = col_for_model(classword)
+    c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{classword}"')
+    num_cls = len(c.fetchall())
+    if classword not in ['st', 'wild_animals', 'pets', 'fish', 'flowers', 'food_containers', 'fruit', 'vegetables', 'electronic_devices', 'furniture', 'insects', 'buildings', 'nature', 'people', 'trees', 'vehicles']:
+        num_cls += 1
+        x_tr, x_tst, y_tr, y_tst = class_others(classword, num_cls)
+        x_train = np.append(x_train, x_tr, axis=0)
+        x_test = np.append(x_test, x_tst, axis=0)
+        y_train = np.append(y_train, y_tr, axis=0)
+        y_test = np.append(y_test, y_tst, axis=0)
+    y_train = to_categorical(y_train, num_classes=num_cls)
+    y_test = to_categorical(y_test, num_classes=num_cls)
+    model = train_model(num_cls, x_train, y_train, x_test, y_test)
+    with open(f'C:\\Users\\savel\\Desktop\\models\\model_{classword}', 'wb') as file:
+        pickle.dump(model, file)
+    if classword == 'st':
+        return
+    else:
+        c.execute(f'SELECT classword_pred FROM classword_classword_pred WHERE classword = "{classword}"')
+        recur_col_for_model(c.fetchall()[0][0])
+        return
+
+
+def upd_clutter():
+    c.execute(f'DELETE FROM class_classword WHERE classword = "{"clutter"}"')
+
+    c.execute(f'SElECT id FROM classword_classword_pred WHERE classword_pred = "{"st"}"')
+    num_cls = len(c.fetchall())
+
+    c.execute('SELECT id FROM classes WHERE is_used = 0')
+    lst_cls = []
+
+    for el in c.fetchall():
+        lst_cls.append(el[0])
+    random.shuffle(lst_cls)
+    lst_cls = lst_cls[:10]
+
+    # x_train = np.array([])
+    # x_test = np.array([])
+    # y_train = np.array([])
+    # y_test = np.array([])
+
+    for i in range(10):
+        id = lst_cls[i]
+        c.execute(f'INSERT INTO class_classword (class_id, classword) VALUES ({id}, "{"clutter"}")')
+        # x_tr, x_tst, y_tr, y_tst = col_fin_id(id, num_cls - 1)
+
+        # if i == 0:
+        #     x_train = x_tr
+        #     x_test = x_tst
+        #     y_train = y_tr
+        #     y_test = y_tst
+        # else:
+        #     x_train = np.append(x_train, x_tr, axis=0)
+        #     x_test = np.append(x_test, x_tst, axis=0)
+        #     y_train = np.append(y_train, y_tr, axis=0)
+        #     y_test = np.append(y_test, y_tst, axis=0)
+
+    x_tr, x_tst, y_tr, y_tst = col_for_model('st')
+
+    y_tr = to_categorical(y_tr, num_classes=num_cls)
+    y_tst = to_categorical(y_tst, num_classes=num_cls)
+    # print(len(x_tr))
+    # print(len(x_tst))
+    # print(len(y_tr))
+    # print(len(y_tst))
+    model = train_model(num_cls, x_tr, y_tr, x_tst, y_tst)
+    with open(f'C:\\Users\\savel\\Desktop\\models\\model_start', 'wb') as f:
+        pickle.dump(model, f)
+
+
+def upd_model(lst_new_ids, classword, classword_pred):
+    fl = 0
+    for i in range(len(lst_new_ids)):
+        c.execute(f'UPDATE classes SET is_used = 1 WHERE id = {lst_new_ids[i]}')
+        if fl:
+            continue
+        else:
+            c.execute(f'SELECT id FROM class_classword WHERE classword = "{"clutter"}" AND class_id = {lst_new_ids[i]}')
+            if len(c.fetchall()) != 0:
+                fl = 1
+
+    for i in range(len(lst_new_ids)):
+        id = lst_new_ids[i]
+        c.execute(f'INSERT INTO class_classword (class_id, classword) VALUES ({id}, "{classword}")')
+        # c.execute(f'SELECT id FROM classword_classword_pred WHERE classword = "{classword}"')
+        # if len(c.fetchall()) == 0:
+        #     c.execute()
+
+    c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{classword_pred}"')
+
+    lst_classwords = []
+    for el in c.fetchall():
+        lst_classwords.append(el[0])
+
+    x_train_org = np.array([])
+    x_test_org = np.array([])
+    y_train_org = np.array([])
+    y_test_org = np.array([])
+    f = 0
+    num_cls = len(lst_classwords)
+
+
+    for i in range(num_cls):
+            clswrd = lst_classwords[i]
+            # if len(x_train) == 0:
+            x_train, x_test, y_train, y_test = col_clwd(clswrd, i)
+            c.execute(f'DELETE FROM classword_num_in_model WHERE classword = "{clswrd}"')
+            c.execute(f'INSERT INTO classword_num_in_model (classword, num_in_model) VALUES (?, ?)', (clswrd, i))
+            # else:
+            #     x_tr, x_tst, y_tr, y_tst = col_clwd(clswrd, i, np.array([]), np.array([]), np.array([]), np.array([]))
+            #     x_train = np.append(x_train, x_tr, axis=0)
+            #     x_test = np.append(x_test, x_tst, axis=0)
+            #     y_train = np.append(y_train, y_tr, axis=0)
+            #     y_test = np.append(y_test, y_tst, axis=0)
+            # c.execute(f'SELECT class_id FROM class_classword WHERE classword = "{clswrd}"')
+            # lst_ids = []
+            # for el in c.fetchall():
+            #     lst_ids.append(el[0])
+            #
+            # for j in range(len(lst_ids)):
+            #     x_tr, x_tst, y_tr, y_tst = col_id_xy(lst_ids[j], i)
+            #     if len(x_train) == 0:
+            #         x_train = x_tr
+            #         x_test = x_tst
+            #         y_train = y_tr
+            #         y_test = y_tst
+            #     else:
+            #         x_train = np.append(x_train, x_tr, axis=0)
+            #         x_test = np.append(x_test, x_tst, axis=0)
+            #         y_train = np.append(y_train, y_tr, axis=0)
+            #         y_test = np.append(y_test, y_tst, axis=0)
+
+            if classword == clswrd:
+                f = 1
+                for o in range(len(lst_new_ids)):
+                    ID = lst_new_ids[o]
+                    x_tr, x_tst, y_tr, y_tst = col_fin_id(ID, i)
+                    x_train = np.append(x_train, x_tr, axis=0)
+                    x_test = np.append(x_test, x_tst, axis=0)
+                    y_train = np.append(y_train, y_tr, axis=0)
+                    y_test = np.append(y_test, y_tst, axis=0)
+
+            random.shuffle(x_train)
+            random.shuffle(x_test)
+
+            if len(x_train) > map_pars['cut_size']:
+                x_train = x_train[:map_pars['cut_size']]
+                y_train = y_train[:map_pars['cut_size']]
+            if len(x_test) > map_pars['cut_size']:
+                x_test = x_test[:map_pars['cut_size']]
+                y_test = y_test[:map_pars['cut_size']]
+
+            if len(x_train_org) == 0:
+                x_train_org = x_train
+                x_test_org = x_test
+                y_train_org = y_train
+                y_test_org = y_test
+            else:
+                x_train_org = np.append(x_train, x_train_org, axis=0)
+                x_test_org = np.append(x_test, x_test_org, axis=0)
+                y_train_org = np.append(y_train, y_train_org, axis=0)
+                y_test_org = np.append(y_test, y_test_org, axis=0)
+
+    if not f:
+        lst_classwords.append(classword)
+        num_cls += 1
+        c.execute(f'DELETE FROM classword_num_in_model WHERE classword = "{classword}"')
+        c.execute(f'INSERT INTO classword_num_in_model (classword, num_in_model) VALUES (?, ?)',
+                  (classword, num_cls - 1))
+        c.execute(
+            f'INSERT INTO classword_classword_pred (classword, classword_pred) VALUES ("{classword}", "{classword_pred}")')
+        x_train = np.array([])
+        x_test = np.array([])
+        y_train = np.array([])
+        y_test = np.array([])
+        for o in range(len(lst_new_ids)):
+            ID = lst_new_ids[o]
+            x_tr, x_tst, y_tr, y_tst = col_fin_id(ID, num_cls - 1)
+            if len(x_train) == 0:
+                x_train = x_tr
+                x_test = x_tst
+                y_train = y_tr
+                y_test = y_tst
+            else:
+                x_train = np.append(x_train, x_tr, axis=0)
+                x_test = np.append(x_test, x_tst, axis=0)
+                y_train = np.append(y_train, y_tr, axis=0)
+                y_test = np.append(y_test, y_tst, axis=0)
+
+        random.shuffle(x_train)
+        random.shuffle(x_test)
+
+        if len(x_train) > map_pars['cut_size']:
+            x_train = x_train[:map_pars['cut_size']]
+            y_train = y_train[:map_pars['cut_size']]
+        if len(x_test) > map_pars['cut_size']:
+            x_test = x_test[:map_pars['cut_size']]
+            y_test = y_test[:map_pars['cut_size']]
+
+
+        x_train_org = np.append(x_train, x_train_org, axis=0)
+        x_test_org = np.append(x_test, x_test_org, axis=0)
+        y_train_org = np.append(y_train, y_train_org, axis=0)
+        y_test_org = np.append(y_test, y_test_org, axis=0)
+
+    y_train_org = to_categorical(y_train_org, num_classes=num_cls)
+    y_test_org = to_categorical(y_test_org, num_classes=num_cls)
+
+    model = train_model(num_cls, x_train_org, y_train_org, x_test_org, y_test_org)
+    with open(f'C:\\Users\\savel\\Desktop\\models\\model_{classword_pred}', 'wb') as file:
+        pickle.dump(model, file)
+
+    if fl:
+        upd_clutter()
+
+
+def upd_model_2(lst_new_ids, classword, classword_pred):
+    fl = 0
+    for i in range(len(lst_new_ids)):
+        c.execute(f'UPDATE classes SET is_used = 1 WHERE id = {lst_new_ids[i]}')
+        if fl:
+            continue
+        else:
+            c.execute(f'SELECT id FROM class_classword WHERE classword = "{"clutter"}" AND class_id = {lst_new_ids[i]}')
+            if len(c.fetchall()) != 0:
+                fl = 1
+
+    for i in range(len(lst_new_ids)):
+        id = lst_new_ids[i]
+        c.execute(f'INSERT INTO class_classword (class_id, classword) VALUES ({id}, "{classword}")')
+
+    c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{classword_pred}"')
+
+    lst_classwords = []
+    for el in c.fetchall():
+        lst_classwords.append(el[0])
+
+    x_train_org = np.array([])
+    x_test_org = np.array([])
+    y_train_org = np.array([])
+    y_test_org = np.array([])
+    f = 0
+    num_cls = len(lst_classwords)
+
+    for i in range(num_cls):
+        clswrd = lst_classwords[i]
+        # if len(x_train) == 0:
+        x_train, x_test, y_train, y_test = col_clwd(clswrd, i)
+        c.execute(f'DELETE FROM classword_num_in_model WHERE classword = "{clswrd}"')
+        c.execute(f'INSERT INTO classword_num_in_model (classword, num_in_model) VALUES (?, ?)', (clswrd, i))
+
+        if classword == clswrd:
+            f = 1
+            for o in range(len(lst_new_ids)):
+                ID = lst_new_ids[o]
+                x_tr, x_tst, y_tr, y_tst = col_fin_id(ID, i)
+                x_train = np.append(x_train, x_tr, axis=0)
+                x_test = np.append(x_test, x_tst, axis=0)
+                y_train = np.append(y_train, y_tr, axis=0)
+                y_test = np.append(y_test, y_tst, axis=0)
+
+        random.shuffle(x_train)
+        random.shuffle(x_test)
+
+        random.shuffle(x_train)
+        random.shuffle(x_test)
+
+        if len(x_train) > map_pars['cut_size']:
+            x_train = x_train[:map_pars['cut_size']]
+            y_train = y_train[:map_pars['cut_size']]
+        if len(x_test) > map_pars['cut_size']:
+            x_test = x_test[:map_pars['cut_size']]
+            y_test = y_test[:map_pars['cut_size']]
+
+        if len(x_train_org) == 0:
+            x_train_org = x_train
+            x_test_org = x_test
+            y_train_org = y_train
+            y_test_org = y_test
+        else:
+            x_train_org = np.append(x_train, x_train_org, axis=0)
+            x_test_org = np.append(x_test, x_test_org, axis=0)
+            y_train_org = np.append(y_train, y_train_org, axis=0)
+            y_test_org = np.append(y_test, y_test_org, axis=0)
+
+
+    if not f:
+            lst_classwords.append(classword)
+            num_cls += 1
+            c.execute(f'DELETE FROM classword_num_in_model WHERE classword = "{classword}"')
+            c.execute(f'INSERT INTO classword_num_in_model (classword, num_in_model) VALUES (?, ?)',
+                      (classword, num_cls - 1))
+            c.execute(
+                f'INSERT INTO classword_classword_pred (classword, classword_pred) VALUES ("{classword}", "{classword_pred}")')
+            x_train = np.array([])
+            x_test = np.array([])
+            y_train = np.array([])
+            y_test = np.array([])
+            for o in range(len(lst_new_ids)):
+                ID = lst_new_ids[o]
+                x_tr, x_tst, y_tr, y_tst = col_fin_id(ID, num_cls - 1)
+                if len(x_train) == 0:
+                    x_train = x_tr
+                    x_test = x_tst
+                    y_train = y_tr
+                    y_test = y_tst
+                else:
+                    x_train = np.append(x_train, x_tr, axis=0)
+                    x_test = np.append(x_test, x_tst, axis=0)
+                    y_train = np.append(y_train, y_tr, axis=0)
+                    y_test = np.append(y_test, y_tst, axis=0)
+
+            random.shuffle(x_train)
+            random.shuffle(x_test)
+
+            if len(x_train) > map_pars['cut_size']:
+                x_train = x_train[:map_pars['cut_size']]
+                y_train = y_train[:map_pars['cut_size']]
+            if len(x_test) > map_pars['cut_size']:
+                x_test = x_test[:map_pars['cut_size']]
+                y_test = y_test[:map_pars['cut_size']]
+
+            x_train_org = np.append(x_train, x_train_org, axis=0)
+            x_test_org = np.append(x_test, x_test_org, axis=0)
+            y_train_org = np.append(y_train, y_train_org, axis=0)
+            y_test_org = np.append(y_test, y_test_org, axis=0)
+
+    # y_train_org = to_categorical(y_train_org, num_classes=num_cls)
+    # y_test_org = to_categorical(y_test_org, num_classes=num_cls)
+    num_cls += 1
+    x_train, x_test, y_train, y_test = class_others(classword_pred, num_cls)
+
+    x_train_org = np.append(x_train, x_train_org, axis=0)
+    x_test_org = np.append(x_test, x_test_org, axis=0)
+    y_train_org = np.append(y_train, y_train_org, axis=0)
+    y_test_org = np.append(y_test, y_test_org, axis=0)
+
+    y_train_org = to_categorical(y_train_org, num_classes=num_cls)
+    y_test_org = to_categorical(y_test_org, num_classes=num_cls)
+
+    model = train_model(num_cls, x_train_org, y_train_org, x_test_org, y_test_org)
+    with open(f'C:\\Users\\savel\\Desktop\\models\\model_{classword_pred}', 'wb') as file:
+        pickle.dump(model, file)
+
+    if fl:
+        upd_clutter()
+
+    remarking(classword_pred)
+
+
+def remarking(classword):
+    with open(f'C:\\Users\\savel\\Desktop\\models\\model_{classword}', 'rb') as f:
+        model = pickle.load(f)
+
+    c.execute(f'SELECT path FROM users_photos WHERE classword = {classword}')
+    lst = []
+    for el in c.fetchall():
+        lst.append(el[0])
+
+    for i in range(len(lst)):
+        path = lst[i]
+        pict = Image.open(path)
+        pict = pict.resize((32, 32))
+        pict = np.array(pict)
+        pict = pict.astype('float32')
+        pict = pict / 255.0
+        pict = np.expand_dims(pict, axis=0)
+        lst_cls = []
+        lst_ans = model.predict(pict)
+        ind_ans = np.argmax(lst_ans)
+        c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{classword}"')
+        for el in c.fetchall():
+            lst_cls.append(el[0])
+
+        lst_ftch = []
+        for cl in lst_cls:
+            c.execute(
+                f'SELECT classword FROM classword_num_in_model WHERE num_in_model = {ind_ans} AND classword = "{cl}"')
+            lst = c.fetchall()
+            if len(lst) != 0:
+                lst_ftch.append(lst[0][0])
+                break
+        if len(lst_ftch) != 0:
+            clswrd = lst_ftch[0]
+            c.execute(f'UPDATE users_photos SET classword = "{clswrd}" WHERE path = "{path}"')
+
+
+conn.commit()
+conn.close()
