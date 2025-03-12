@@ -1,0 +1,33 @@
+from googletrans import Translator
+import sqlite3
+path_BD = "C:\\Users\\savel\\Desktop\\BD.db"
+conn = sqlite3.connect(path_BD)
+c = conn.cursor()
+
+
+def translate(st, to):
+    translator = Translator()
+    if to == 'en':
+        translation = translator.translate(st, src='ru', dest='en')
+    else:
+        translation = translator.translate(st, src='en', dest='ru')
+
+    return translation.text
+
+
+# lst_cls = []
+# c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword != "{"clutter"}"')
+# for el in c.fetchall():
+#     lst_cl
+
+
+# for i, cl in enumerate(lst_cls):
+#     cl1 = cl.replace("_", " ")
+#     rus_cl = translate(cl1, 'ru')
+#     c.execute(f'INSERT INTO dict (en, rus) VALUES ("{cl}", "{rus_cl.replace(" ", "_")}")')
+#     print(i, cl)
+
+# c.execute(f'DELETE FROM dict')
+
+conn.commit()
+conn.close()
