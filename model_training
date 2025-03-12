@@ -1,0 +1,663 @@
+from os import listdir
+
+import keras
+import numpy as np
+import os
+
+from datetime import datetime
+import cifar10
+from keras._tf_keras.keras.callbacks import ModelCheckpoint, EarlyStopping, Callback, ReduceLROnPlateau
+from keras.src.backend.jax.random import shuffle
+from keras.src.metrics.accuracy_metrics import accuracy
+from numpy.array_api import expand_dims
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+from tensorflow.python.keras.saving.saved_model.load import metrics
+from tensorflow.python.keras.saving.saved_model.utils import list_all_layers
+from tensorflow.python.keras.utils.version_utils import callbacks
+from keras import regularizers
+from tensorflow.python.ops.gen_batch_ops import batch
+from torch.backends.mkl import verbose
+
+
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+import tensorflow as tf
+
+from keras.src.optimizers.schedules import ExponentialDecay
+from keras._tf_keras.keras.models import Sequential
+from keras._tf_keras.keras.layers import Dense, Dropout, Flatten, BatchNormalization, Activation
+from keras._tf_keras.keras.layers import Conv2D, MaxPooling2D
+from keras._tf_keras.keras.constraints import MaxNorm
+from keras._tf_keras.keras.utils import to_categorical
+from keras._tf_keras.keras.datasets import cifar100
+import matplotlib.pyplot as plt
+import sqlite3
+from PIL import Image
+import pickle
+import random
+import math
+
+
+path_BD = "C:\\Users\\savel\\Desktop\\BD.db"
+conn = sqlite3.connect(path_BD)
+c = conn.cursor()
+f = 1
+
+
+map_pars = {
+    "level" : 2,
+    "cut_size" : 6000,
+    "am_1_blocks" : 4,
+    "am_2_blocks" : 2,
+    "lst_fits" : [5, 6, 6, 7],
+    "lst_units" : [8, 7],
+    "dropout" : 0.2,
+    "lst_regs" : [0.001, 0.001],
+    "start_lr" : 0.001,
+    "lr_decay" : 0.96,
+    "epochs" : 50,
+    "batch_size" : 64,
+    "lr_factor" : 0.9,
+    "target_acc" : 0.95,
+    "decay_steps" : 10000
+}
+
+acc_pred = 0
+acc_pred_pred = 0
+x_train_1 = []
+x_test_1 = []
+y_train_1 = []
+y_test_1 = []
+x_train_2 = []
+x_test_2 = []
+y_train_2 = []
+y_test_2 = []
+x_train_0 = []
+x_test_0 = []
+y_train_0 = []
+y_test_0 = []
+x_train = []
+y_train = []
+x_test = []
+y_test = []
+
+
+class StopAtAccuracy(Callback):
+    def __init__(self, target_accuracy):
+        super(StopAtAccuracy, self).__init__()
+        self.target_accuracy = target_accuracy
+
+    def on_epoch_end(self, epoch, logs=None):
+        accuracy = logs.get('val_accuracy')
+        # global acc_pred, acc_pred_pred
+        # if accuracy >= 0.64:
+        #     test_accuracy = logs.get()
+        #     print("Текущая тестовая точность - ", test_accuracy)
+        if accuracy >= self.target_accuracy:
+            # print(f"\nДостигнута целевая точность {self.target_accuracy}, остановка обучения.")
+            self.model.stop_training = True
+        # acc_pred_pred = acc_pred
+        # acc_pred = accuracy
+
+
+stop_callback = StopAtAccuracy(map_pars['target_acc'])
+
+lr_callback = ReduceLROnPlateau(monitor="val_accuracy", factor=map_pars["lr_factor"], verbose=1, mode="auto",
+                           min_delta=0.01, patience=10,
+                           cooldown=0, min_lr=0.00001)
+
+
+def reconstructing(history):
+    lst_acc = history.history['accuracy'][-int(len(history.history['accuracy']) * 0.1):]
+    lst_val_acc = history.history['val_accuracy'][-int(len(history.history['val_accuracy']) * 0.1):]
+    lst_loss = history.history['loss'][-int(len(history.history['loss']) * 0.1):]
+    lst_val_loss = history.history['val_loss'][-int(len(history.history['val_loss']) * 0.1):]
+
+    n = len(lst_acc)
+    lst_delta_acc = []
+    lst_delta_val_acc = []
+    lst_delta_loss = []
+    lst_delta_val_loss = []
+    av_acc = sum(lst_acc) / len(lst_acc)
+    av_loss = sum(lst_loss) / len(lst_loss)
+    av_val_acc = sum(lst_val_acc) / len(lst_val_acc)
+    av_val_loss = sum(lst_val_loss) / len(lst_val_loss)
+    av_delta_acc = 0
+    av_delta_val_acc = 0
+    av_delta_loss = 0
+    av_delta_val_loss = 0
+
+    for i in range(1, n):
+        lst_delta_acc.append(lst_acc[i] - lst_acc[i - 1])
+        av_delta_acc += lst_acc[i] - lst_acc[i - 1]
+        lst_delta_val_acc.append(lst_val_acc[i] - lst_val_acc[i - 1])
+        av_delta_val_acc += lst_val_acc[i] - lst_val_acc[i - 1]
+        lst_delta_loss.append(lst_loss[i] - lst_loss[i - 1])
+        av_delta_loss += lst_loss[i] - lst_loss[i - 1]
+        lst_delta_val_loss.append(lst_val_loss[i] - lst_val_loss[i - 1])
+        av_delta_val_loss += lst_val_loss[i] - lst_val_loss[i - 1]
+
+    av_delta_acc /= max((n - 1), 1)
+    av_delta_val_acc /= max((n - 1), 1)
+    av_delta_loss /= max((n - 1), 1)
+    av_delta_val_loss /= max((n - 1), 1)
+
+    # if (разница между r**2 на валидации и трейне >= 0.2):
+    if i == 1:
+        if map_pars["dropout"] <= 0.45:
+            map_pars["dropout"] += 0.05
+        else:
+            map_pars["dropout"] = 0.5
+
+        for i in range(len(map_pars['lst_regs'])):
+            if map_pars['lst_regs'][i] <= 0.5:
+                map_pars['lst_regs'][i] *= 2
+            else:
+                map_pars['lst_regs'][i] = 1
+
+        if map_pars["am_1_blocks"] >= 2:
+            map_pars["am_1_blocks"] -= 1
+            map_pars["lst_fits"].pop(-1)
+            # map_pars["lst_regs"].pop(-1)
+
+        if map_pars["am_2_blocks"] >= 2:
+            map_pars["am_2_blocks"] -= 1
+            map_pars["lst_units"].pop(0)
+            map_pars["lst_regs"].pop(0)
+
+    # elif (av_loss > 0.2 and av_val_loss > 0.3 and av_acc < 0.5 and av_val_acc < 0.4):
+    else:
+        map_pars["am_1_blocks"] += 1
+        lst = map_pars["lst_fits"]
+        if len(lst) == 1:
+            map_pars['lst_fits'].append(lst[0] + 1)
+        else:
+            map_pars["lst_fits"].append(lst[-1] + (1 - (lst[-1] - lst[-2])))
+
+        map_pars["am_2_blocks"] += 1
+        lst = map_pars["lst_units"]
+        map_pars["lst_units"] = [lst[0] + 1] + lst
+        map_pars["lst_regs"].append(map_pars["lst_regs"][-1])
+
+        map_pars["start_lr"] += 0.001
+    # else:
+    #     print("Возник необработанный случай при обучении.")
+
+
+    return
+    # elif (av_delta_loss > -0.00001 and av_delta_val_loss > -0.00001 and av_delta_val_acc < 0.0001):
+        # плохая сходимость
+        # что делать с lr???
+#       что-то сделать с factor и decay_rate?
+
+
+def build_model(x_train_shape, num_cls, map_pars):
+    model = Sequential()
+
+    for i in range(map_pars["am_1_blocks"]):
+        if i == 0:
+            model.add(Conv2D(2 ** (map_pars["lst_fits"][0]), (3, 3), input_shape=x_train_shape[1:], padding='same'))
+        else:
+            model.add(Conv2D(2 ** (map_pars["lst_fits"][i]), (3, 3), padding='same'))
+
+        model.add(Activation('relu'))
+        model.add(MaxPooling2D(pool_size=(2, 2)))
+        model.add(Dropout(map_pars["dropout"]))
+        model.add(BatchNormalization())
+
+    model.add(Flatten())
+    model.add(Dropout(map_pars["dropout"]))
+
+    for j in range(map_pars["am_2_blocks"]):
+        model.add(Dense(2 ** (map_pars["lst_units"][j]), kernel_constraint=MaxNorm(3), kernel_regularizer=regularizers.L2(l2=map_pars["lst_regs"][j])))
+        model.add(Activation('relu'))
+        model.add(Dropout(map_pars["dropout"]))
+        model.add(BatchNormalization())
+
+    model.add(Dense(num_cls))
+    model.add(Activation('softmax'))
+
+    initial_learning_rate = map_pars["start_lr"]
+    lr_scheduler = keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate,
+        decay_steps=map_pars["decay_steps"],
+        decay_rate=map_pars["lr_decay"],
+        staircase=True)
+
+    optimizer = keras.optimizers.Adam()
+
+    model.compile(loss='categorical_crossentropy', optimizer=optimizer,
+                  metrics=['accuracy'])
+    return model
+
+k = 1
+
+def train_model(num_cls, x_train_org, y_train_org, x_test, y_test, epochs=map_pars["epochs"], batch_size=map_pars["batch_size"]):
+    global k
+
+    x_train, x_val, y_train, y_val = train_test_split(x_train_org, y_train_org, train_size=0.8, random_state=42)
+
+    model = build_model(x_train.shape, num_cls, map_pars)
+
+    if map_pars['level'] > 1:
+        call_1 = ReduceLROnPlateau(monitor="val_accuracy", factor=map_pars["lr_factor"], verbose=1, mode="auto", min_delta=0.01, patience=15,
+                                   cooldown=0, min_lr=0.00001)
+
+        call_2 = EarlyStopping(monitor="val_loss", min_delta=0.01, patience=20, verbose=1, mode="auto",
+                               restore_best_weights=True)
+
+    stop_at_target_accuracy = StopAtAccuracy(target_accuracy=map_pars["target_acc"])
+    call_3 = stop_at_target_accuracy
+
+    callbacks = [call_1, call_2]
+
+    history = model.fit(x_train, y_train, validation_data=(x_val, y_val ), epochs=epochs, batch_size=batch_size, callbacks=callbacks)
+    # history_tst = model.evaluate(x_test, y_test, batch_size=batch_size)
+
+    # timestamp = datetime.now().strftime("%d_%H-%M-%S")
+    # model_dir = f"mnist_model_{timestamp}"
+    # with open(model_dir, 'wb') as f:
+    #     pickle.dump(model, f)
+    # print(f"Модель сохранена в {model_dir}")
+
+    satis_test_acc = 0.75
+    test_batch_size = 32
+
+    test_results = model.evaluate(x_test, y_test, batch_size=test_batch_size, return_dict=True)
+
+    if history.history['val_accuracy'][-1] < map_pars["target_acc"]:
+        print("Вылет по колбекку(не растет точность)")
+        print("Тестовая точность - ", test_results["accuracy"])
+        if k == 100:
+            return
+        k += 1
+        reconstructing(history)
+        print(map_pars)
+        # print(model.summary())
+        train_model(num_cls, x_train_org, y_train_org, x_test, y_test, epochs=map_pars["epochs"], batch_size=map_pars["batch_size"])
+    else:
+        if test_results["accuracy"] >= satis_test_acc:
+            print("Обучение успешно завершено. Тестовая точность - ", test_results["accuracy"])
+            return model.summary()
+        else:
+            print("Слишком маленькая точность на тесте - ", test_results["accuracy"])
+            if k == 100:
+                return
+            k += 1
+            reconstructing(history)
+            print(map_pars)
+            # print(model.summary())
+            train_model(num_cls, x_train_org, y_train_org, x_test, y_test, epochs=map_pars["epochs"], batch_size=map_pars["batch_size"])
+
+
+def train_model_mnist(num_cls, x_train_org, y_train_org, x_test, y_test, path='', epochs=map_pars["epochs"], batch_size=map_pars["batch_size"], callbacks=[]):
+    y_train_org = to_categorical(y_train_org, num_cls)
+    y_test = to_categorical(y_test, num_cls)
+
+    x_train, x_val, y_train, y_val = train_test_split(x_train_org, y_train_org, train_size=0.8, random_state=42)
+    model = Sequential()
+    model.add(Flatten())
+    # layers.Conv1D(10, 3, activation='relu'),
+    # layers.Dense(128),
+    model.add(Dense(128, activation='relu'))
+    # layers.Dense(128, activation='relu'),
+    model.add(Dense(num_cls, activation='softmax'))
+
+    epochs = 50
+
+    model.compile(optimizer='Adam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+
+    # callback = StopAtAccuracy(target_accuracy=map_pars["target_acc"])
+
+    history = model.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=epochs, batch_size=batch_size, callbacks=callbacks)
+
+    build_plot(history, path)
+
+    # timestamp = datetime.now().strftime("%d_%H-%M-%S")
+    # model_dir = f"mnist_model_{timestamp}"
+    # with open(model_dir, 'wb') as f:
+    #     pickle.dump(model, f)
+    # print(f"Модель сохранена в {model_dir}")
+
+    satis_test_acc = 0.75
+    test_batch_size = 32
+    test_results = model.evaluate(x_test, y_test, batch_size=test_batch_size, return_dict=True)
+    if test_results["accuracy"] >= satis_test_acc:
+        print("Обучение успешно завершено. Тестовая точность - ", test_results["accuracy"])
+    else:
+        print("Обучение неуспешно завершено. Тестовая точность - ", test_results["accuracy"])
+
+
+def  train_model_cifar10(num_cls, x_train_org, y_train_org, x_test, y_test, path='', epochs=map_pars["epochs"], batch_size=map_pars["batch_size"], callbacks=[]):
+    y_train_org = to_categorical(y_train_org, num_cls)
+    y_test = to_categorical(y_test, num_cls)
+
+    x_train, x_val, y_train, y_val = train_test_split(x_train_org, y_train_org, train_size=0.8, random_state=42)
+    model = Sequential()
+
+    model.add(Conv2D(32, (3, 3), input_shape=x_train.shape[1:], padding='same'))
+    model.add(Activation('relu'))
+
+    model.add(Dropout(0.2))
+
+    model.add(BatchNormalization())
+
+    model.add(Conv2D(64, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+
+    model.add(Conv2D(64, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+    model.add(Conv2D(128, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+
+    model.add(Flatten())
+    model.add(Dropout(0.2))
+    model.add(Dense(256, kernel_constraint=MaxNorm(3)))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+    model.add(Dense(128, kernel_constraint=MaxNorm(3)))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+
+    model.add(Dense(num_cls))
+    model.add(Activation('softmax'))
+
+    epochs = 50
+    optimizer = 'adam'
+    model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+
+    history = model.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=epochs, batch_size=batch_size, callbacks=callbacks)
+    # build_plot(history, path)
+
+    return model
+
+    # timestamp = datetime.now().strftime("%d_%H-%M-%S")
+    # model_dir = f"cifar10(mnist)_model_{timestamp}"
+    # with open(model_dir, 'wb') as f:
+    #     pickle.dump(model, f)
+    # print(f"Модель сохранена в {model_dir}")
+
+    # satis_test_acc = 0.75
+    # test_batch_size = 32
+    # test_results = model.evaluate(x_test, y_test, batch_size=test_batch_size, return_dict=True)
+    # if test_results["accuracy"] >= satis_test_acc:
+    #     print("Обучение успешно завершено. Тестовая точность - ", test_results["accuracy"])
+    # else:
+    #     print("Обучение неуспешно завершено. Тестовая точность - ", test_results["accuracy"])
+
+
+
+
+
+def train_model_cifar100(num_cls, x_train_org, y_train_org, x_test, y_test, path='', epochs=map_pars["epochs"], batch_size=map_pars["batch_size"], callbacks=[]):
+    y_train_org = to_categorical(y_train_org, num_cls)
+    y_test = to_categorical(y_test, num_cls)
+
+    x_train, x_val, y_train, y_val = train_test_split(x_train_org, y_train_org, train_size=0.8, random_state=42)
+
+    model = Sequential()
+
+    model.add(Conv2D(32, (3, 3), input_shape=x_train.shape[1:], padding='same'))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+
+    model.add(Conv2D(64, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+
+    model.add(Conv2D(64, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+
+    model.add(Conv2D(64, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+
+    model.add(Conv2D(128, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+
+    model.add(Conv2D(128, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+
+    model.add(Flatten())
+    model.add(Dropout(0.2))
+    model.add(Dense(512, kernel_constraint=MaxNorm(3)))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+    model.add(Dense(256, kernel_constraint=MaxNorm(3)))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+    model.add(Dense(128, kernel_constraint=MaxNorm(3)))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+
+    model.add(Dense(num_cls))
+    model.add(Activation('softmax'))
+
+    epochs = 50
+    optimizer = 'adam'
+    model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+
+    callback = ReduceLROnPlateau(monitor="val_accuracy", factor=map_pars["lr_factor"], verbose=1, mode="auto",
+                               min_delta=0.01, patience=10,
+                               cooldown=0, min_lr=0.00001)
+
+
+    history = model.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=epochs, batch_size=batch_size, callbacks=callbacks)
+
+    # build_plot(history, path)
+
+    return model
+
+    # timestamp = datetime.now().strftime("%d_%H-%M-%S")
+    # model_dir = f"cifar100_model(2)_{timestamp}"
+    # with open(model_dir, 'wb') as f:
+    #     pickle.dump(model, f)
+    # print(f"Модель сохранена в {model_dir}")
+
+    # satis_test_acc = 0.75
+    # test_batch_size = 32
+    # test_results = model.evaluate(x_test, y_test, batch_size=test_batch_size, return_dict=True)
+    # if test_results["accuracy"] >= satis_test_acc:
+    #     print("Обучение успешно завершено. Тестовая точность - ", test_results["accuracy"])
+    # else:
+    #     print("Обучение неуспешно завершено. Тестовая точность - ", test_results["accuracy"])
+
+
+
+def sep_cls(num_cls, x_test, y_test, model_path):
+
+    y_test = to_categorical(y_test, num_cls)
+
+    with open(model_path, 'rb') as f:
+        model = pickle.load(f)
+
+    k = num_cls // 2
+
+    lst_test_acc = []
+
+    y_pred = model.predict(x_test)
+
+    y_pred_classes = np.argmax(y_pred, axis=1)
+    y_true_classes = np.argmax(y_test, axis=1)
+
+    dict = classification_report(y_true_classes, y_pred_classes, output_dict=True)
+
+    cntr = 0
+
+    for key in dict.keys():
+        if cntr >= num_cls:
+            break
+        pr = dict[key]['precision']
+        lst_test_acc.append([pr, int(key)])
+        cntr += 1
+
+    lst_test_acc.sort(reverse=True)
+
+    lst_suc_cls = []
+    lst_failed_cls = []
+
+    for i in range(num_cls):
+        if i < k:
+            lst_suc_cls.append(lst_test_acc[i][1])
+        else:
+            lst_failed_cls.append(lst_test_acc[i][1])
+
+    return [lst_suc_cls, lst_failed_cls]
+
+
+
+def build_plot(history, path):
+    train_acc = history.history["accuracy"]
+    val_acc = history.history["val_accuracy"]
+    train_loss = history.history["loss"]
+    val_loss = history.history["val_loss"]
+    epochs = [i for i in range(1, 51)]
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, train_acc, label="train_acc", marker='o', color='blue', markersize=2)
+    plt.plot(epochs, val_acc, label="val_acc", marker='o', color='red', markersize=2)
+    plt.xlabel("Эпохи")
+    plt.ylabel("Значение")
+    plt.title(f"График обучения модели,   max_val_acc = {round(max(val_acc) * 100, 2)}")
+    plt.legend()
+    plt.grid(True)
+
+    max_train_acc_idx = train_acc.index(max(train_acc)) 
+    max_val_acc_idx = val_acc.index(max(val_acc))
+
+    plt.scatter(epochs[max_train_acc_idx], train_acc[max_train_acc_idx], color='blue', marker='o', s=20,
+                label=f'{max(train_loss)}')
+    plt.scatter(epochs[max_val_acc_idx], val_acc[max_val_acc_idx], color='red', marker='o', s=20, label=f'{max(val_acc)}')
+
+    # plt.savefig(path + '_acc_plot.png', dpi=300, bbox_inches='tight')  # PNG файл с высоким разрешением
+    # plt.savefig("cifar10(2)_acc_plot.pdf")  # PDF для векторного сохранения
+
+    plt.show()
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, train_loss, label="train_loss", marker='o', color='blue', markersize=2)
+    plt.plot(epochs, val_loss, label="val_loss", marker='o', color='red', markersize=2)
+    plt.xlabel("Эпохи")
+    plt.ylabel("Значение")
+    plt.title(f"График обучения модели,   min_val_loss = {round(min(val_loss), 2)}")
+    plt.legend()
+    plt.grid(True)
+
+    max_train_loss_idx = train_loss.index(min(train_loss))
+    max_val_loss_idx = val_loss.index(min(val_loss))
+
+    plt.scatter(epochs[max_train_loss_idx], train_loss[max_train_loss_idx], color='blue', marker='o', s=20,
+                label=f'{min(train_loss)}')
+    plt.scatter(epochs[max_val_loss_idx], val_loss[max_val_loss_idx], color='red', marker='o', s=20, label=f'{min(val_loss)}')
+
+    # plt.savefig(path + '_loss_plot.png', dpi=300, bbox_inches='tight')  # PNG файл с высоким разрешением
+    # plt.savefig("cifar10(2)_loss_plot.pdf")  # PDF для векторного сохранения
+
+    plt.show()
+
+
+
+def load_cifar10_data():
+    global x_train_1, x_train_0, x_train_2, x_test_0, x_test_1, x_test_2, y_train_1, y_test_1, y_test_2, y_train_2, y_test_0, y_train_0, y_train, y_test, x_test,\
+        x_train
+    x_test = np.load('x_test_cif10.npy')
+    y_test_org = np.load('y_test_cif10.npy')
+    y_test = y_test_org
+
+
+    lst = sep_cls(10, x_test, y_test, 'cifar10_model(10)_14_09-36-46')
+
+    map_labels = {}
+
+    for i, el in enumerate(lst[0]):
+        map_labels[el] = i
+
+    for i, el in enumerate(lst[1]):
+        map_labels[el] = i
+
+    # print(map_labels)
+
+    x_train = np.load('x_train_cif10.npy')
+    y_train_org = np.load('y_train_cif10.npy')
+    y_train = y_train_org
+
+
+    for i in range(len(y_train_org)):
+        x_train_0.append(x_train[i])
+        if y_train_org[i][0] in lst[0]:
+            x_train_1.append(x_train[i])
+            y_train_1.append(map_labels[y_train_org[i][0]])
+            y_train_0.append([0])
+        else:
+            x_train_2.append(x_train[i])
+            y_train_2.append(map_labels[y_train_org[i][0]])
+            y_train_0.append([1])
+
+
+    for i in range(len(y_test_org)):
+        x_test_0.append(x_test[i])
+        if y_test_org[i][0] in lst[0]:
+            x_test_1.append(x_test[i])
+            y_test_1.append(map_labels[y_test_org[i][0]])
+            y_test_0.append([0])
+        else:
+            x_test_2.append(x_test[i])
+            y_test_2.append(map_labels[y_test_org[i][0]])
+            y_test_0.append([1])
+
+    x_train_1 = np.array(x_train_1)
+    x_test_1 = np.array(x_test_1)
+    x_train_2 = np.array(x_train_2)
+    x_test_2 = np.array(x_test_2)
+    x_train_0 = np.array(x_train_0)
+    x_test_0 = np.array(x_test_0)
+    x_train = np.array(x_train)
+    x_test = np.array(x_test)
+
+load_cifar10_data()
+
+
+
+def augmentation(x_train, y_train):
+    x_train_ret = x_train
+    y_train_ret = y_train
+
+    for k in range(1, 4):
+        y_train_ret = np.append(y_train_ret, y_train, axis=0)
+        x = tf.image.rot90(x_train, k)
+        x_train_ret = np.append(x_train_ret, x, axis=0)
+
+    return x_train_ret, y_train_ret
+
+
+conn.commit()
+conn.close()
