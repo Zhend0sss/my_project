@@ -1,0 +1,234 @@
+import numpy as np
+import os
+import exifread
+
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+from sentence_transformers import SentenceTransformer, util
+from translator import translate
+from models_1 import upd_model, upd_model_2, recur_col_for_model
+from pict_input import convert_to_coords, col_all_cls
+import keras
+from sklearn.model_selection import train_test_split
+import tensorflow as tf
+from keras._tf_keras.keras.models import Sequential
+from keras._tf_keras.keras.layers import Dense, Dropout, Flatten, BatchNormalization, Activation
+from keras._tf_keras.keras.layers import Conv2D, MaxPooling2D
+from keras._tf_keras.keras.constraints import MaxNorm
+from keras._tf_keras.keras.utils import to_categorical
+from keras._tf_keras.keras.datasets import cifar100
+import matplotlib.pyplot as plt
+import sqlite3
+from PIL import Image
+import pickle
+import random
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut
+
+# path_y_train_labelme = "C:\\Users\\savel\\Downloads\\y_train_labelme.npy"
+# path_y_test_labelme = "C:\\Users\\savel\\Downloads\\y_test_labelme.npy"
+path_BD = "C:\\Users\\savel\\Desktop\\BD.db"
+# lst_cls = ['person', 'car', 'building', 'window','tree', 'sign', 'door', 'bookshelf', 'chair', 'table', 'keyboard', 'head']
+conn = sqlite3.connect(path_BD)
+c = conn.cursor()
+
+
+# c.execute('''CREATE TABLE users_spcls
+#              (id INTEGER PRIMARY KEY,
+#              classword TEXT,
+#              superclassword TEXT
+#              )''')
+
+
+def col_users_clswrd(classword):
+    lst_ans = []
+    c.execute(f'SELECT path FROM users_photos WHERE classword = "{classword}"')
+    for el in c.fetchall():
+        lst_ans.append(el[0])
+
+    lst = []
+    c.execute(f'SELECT classword FROM users_spcls WHERE superclassword = "{classword}"')
+    for el in c.fetchall():
+        lst.append(el[0])
+
+    c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{classword}"')
+    for el in c.fetchall():
+        lst.append(el[0])
+
+    for cl in lst:
+        lst_paths = col_users_clswrd(cl)
+        for path in lst_paths:
+            if path not in lst_ans:
+                lst_ans.append(path)
+
+    return lst_ans
+
+
+def get_address(coords):
+    geolocator = Nominatim(user_agent="test")
+    location = geolocator.reverse(coords, exactly_one=True)
+    address = location.address
+    return address
+
+
+def output_picts():
+    print("Что хотите найти?")
+    lst_paths_ans = []
+    lst_inp_time = input().split('  ')
+    lst_inp_date = input().split('  ')
+    lst_inp_loc = input().split('  ')
+    inp_classword = input() #даем выбрать из активных классов, из фантомных и из классов в users(col_all_cls)
+    if inp_classword != 'ничего не подошло':
+        lst_paths = col_users_clswrd(inp_classword)
+        for path in lst_paths:
+            lst_paths_ans.append(path)
+    else:
+        print("Допишите пожалуйста ваш запрос до конца.")
+        # даем выбрать из всего classes where is_used = 0 и "оставить свой вариант"
+        inp_classword_2 = input()
+        inp_classword_2 = inp_classword_2.replace(" ", "_")
+        cl1 = inp_classword_2.replace("_", " ")
+        en_cl = translate(cl1, 'en')
+        en_cl.replace(" ", "_")
+        wtv_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+        sentences = col_all_cls()
+        sentence_embeddings = wtv_model.encode(sentences)
+        query = en_cl
+        query_embedding = wtv_model.encode(query)
+        similarities = util.pytorch_cos_sim(query_embedding, sentence_embeddings)
+        cntr = 0
+        for i in range(len(similarities)):
+            s = similarities[i][0]
+            if s >= 0.25:
+                cntr += 1
+        top_results = similarities.topk(cntr)
+        lst_ans_2 = []
+        for idx in top_results[1]:
+            lst_ans_2.append(sentences[idx])
+
+
+        lst_inp = ['ничего не подошло']
+        if len(lst_ans_2) != 0:
+            print("Выберите из предложенных классов те, которые подходят под введенное вами описание."
+                  "Для упрощения, выбирайте максимально широкие классы, чтобы не выбирать их подклассы.")
+            print(lst_ans_2)
+            lst_inp = input().split('  ')
+            if lst_inp != ['ничего не подошло']:
+                for el in lst_inp:
+                    c.execute(f'INSERT INTO users_spcls (classword, superclassword) VALUES (?, ?)',
+                              (el, inp_classword_2))
+
+                cl1 = inp_classword_2.replace("_", " ")
+                rus_cl = translate(cl1, 'ru')
+                c.execute(f'INSERT INTO dict (en, rus) VALUES ("{inp_classword_2}", "{rus_cl.replace(" ", "_")}")')
+                c.execute(f'UPDATE classes SET is_used = 1 WHERE classword = inp_classword_2')
+                lst_paths = col_users_clswrd(inp_classword_2)
+                for path in lst_paths:
+                    lst_paths_ans.append(path)
+        if lst_inp == ['ничего не подошло']:
+            print('Тогда выберите из предложенных классов тот, которым можно описать введенный вами класс.'
+                  'Пожалуйста, для корректной работы приложения укажите максимально узкий класс.')
+            # ЗАПРЕЩАЕМ ПОЛЬЗОВАТЕЛЮ ВЫБИРАТЬ ФАНТОМНЫЕ СУПЕРКЛАССЫ!!!
+            lst_inp_2 = input().split('  ')
+            if lst_inp_2 == ['ничего не подошло']:
+                print('К сожалению система не смогла понять, что вам вывести(((')
+                return
+            else:
+                spcl = lst_inp_2[0]
+                if inp_classword_2 != "оставить свой вариант":
+                    lst_new_ids = []
+                    c.execute(f'SELECT id FROM classes WHERE classword = "{inp_classword_2}" AND is_used = {0}')
+                    for el in c.fetchall():
+                        lst_new_ids.append(el[0])
+
+                    if spcl in ['st', 'wild_animals', 'pets', 'fish', 'flowers', 'food_containers', 'fruit',
+                                'vegetables', 'electronic_devices', 'furniture', 'insects', 'buildings', 'nature',
+                                'people', 'trees', 'vehicles']:
+                        upd_model(lst_new_ids, inp_classword_2, spcl)
+                    else:
+                        upd_model_2(lst_new_ids, inp_classword_2, spcl)
+                    if spcl != 'st':
+                        c.execute(f'SELECT classword_pred FROM classword_classword_pred WHERE classword = "{spcl}"')
+                        recur_col_for_model(c.fetchall()[0][0])
+
+
+                    c.execute(f'SELECT path FROM users_photos WHERE classword = "{inp_classword_2}"')
+                    for el in c.fetchall():
+                        path = el[0]
+                        lst_paths_ans.append(path)
+                else:
+                    c.execute(f'SELECT path FROM users_photos WHERE classword == "{spcl}"')
+                    lst_f = c.fetchall()
+                    if len(lst_f) == 0:
+                        print("К сожалению системе не удается найти нужные вам картинки(((")
+                        return
+                    lst_p = []
+                    lst_d = []
+                    lst_l = []
+                    for el in lst_f:
+                        path = el[0]
+                        c.execute(f'SELECT location, date_taken FROM users_photos WHERE path = "{path}"')
+                        location, date_taken = c.fetchall()[0]
+                        address = 'неизвестно'
+                        if location != "N/A, N/A":
+                            coords = convert_to_coords(location)
+                            address = get_address(coords)
+                        lst_dt = date_taken.split()
+                        date = lst_dt[0]
+                        time = lst_dt[1]
+                        if (lst_inp_time == [] or time in lst_inp_time) and (lst_inp_date == [] or date in lst_inp_date) and (lst_inp_loc == [] or address in lst_inp_loc or address == "неизвестно"):
+                            lst_d.append(date)
+                            lst_l.append(location)
+                            lst_p.append(path)
+
+                    if len(lst_p) == 0:
+                        print("К сожалению не удалось найти картинки с указанным описанием(((")
+                    else:
+                        print("Пожалуйста, выберите нужную(ые) картинку(и),")
+                        lst_set = []
+                        for d in lst_d:
+                            if d not in lst_set:
+                                k = lst_d.count(d)
+                                print(f"Найдено {k} картинок, сфотографированных {d}")
+                                lst_set.append(d)
+
+
+                        lst_set = ["неизвестно"]
+                        for l in lst_l:
+                            if l not in lst_set:
+                                k = lst_d.count(l)
+                                print(f"Найдено {k} картинок, сфотографированных в {l}")
+                                lst_set.append(l)
+
+                        # локальный вывод фоток
+
+                    return
+
+    lst_paths_res = []
+
+    for path in lst_paths_ans:
+        c.execute(f'SELECT location, date_taken FROM users_photos WHERE path = "{path}"')
+        location, date_taken = c.fetchall()[0]
+        address = 'неизвестно'
+        if location != "N/A, N/A":
+            coords = convert_to_coords(location)
+            address = get_address(coords)
+        lst_dt = date_taken.split()
+        date = lst_dt[0]
+        time = lst_dt[1]
+        if (lst_inp_time == [] or time in lst_inp_time) and (lst_inp_date == [] or date in lst_inp_date) and (
+                lst_inp_loc == [] or address in lst_inp_loc or address == "неизвестно"):
+            lst_paths_res.append(path)
+
+    if len(lst_paths_res) == 0:
+        print("К сожалению не удалось найти картинки с указанным описанием(((")
+    else:
+        for path in lst_paths_res:
+            pict = Image.open(path)
+            plt.imshow(pict)
+            plt.axis('off')
+            plt.show()
+
+conn.commit()
+conn.close()
