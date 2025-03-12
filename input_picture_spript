@@ -1,0 +1,278 @@
+import numpy as np
+import os
+import exifread
+from translator import translate
+from models_1 import upd_model, upd_model_2, recur_col_for_model
+
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+from sentence_transformers import SentenceTransformer, util
+
+import keras
+from sklearn.model_selection import train_test_split
+import tensorflow as tf
+from keras._tf_keras.keras.models import Sequential
+from keras._tf_keras.keras.layers import Dense, Dropout, Flatten, BatchNormalization, Activation
+from keras._tf_keras.keras.layers import Conv2D, MaxPooling2D
+from keras._tf_keras.keras.constraints import MaxNorm
+from keras._tf_keras.keras.utils import to_categorical
+from keras._tf_keras.keras.datasets import cifar100
+import matplotlib.pyplot as plt
+import sqlite3
+from PIL import Image
+import pickle
+import random
+
+# path_y_train_labelme = "C:\\Users\\savel\\Downloads\\y_train_labelme.npy"
+# path_y_test_labelme = "C:\\Users\\savel\\Downloads\\y_test_labelme.npy"
+path_BD = "C:\\Users\\savel\\Desktop\\BD.db"
+# lst_cls = ['person', 'car', 'building', 'window','tree', 'sign', 'door', 'bookshelf', 'chair', 'table', 'keyboard', 'head']
+conn = sqlite3.connect(path_BD)
+c = conn.cursor()
+
+
+def convert_to_coords(coords_str):
+    # Remove the brackets and split the string into latitude and longitude parts
+    lat_str, lon_str = coords_str.strip("[]").split("], [")
+
+    # Split each part into degrees, minutes, and seconds
+    lat_parts = lat_str.split(", ")
+    lon_parts = lon_str.split(", ")
+
+    # Calculate the decimal coordinates
+    latitude = float(eval(lat_parts[0])) + float(eval(lat_parts[1])) / 60 + float(eval(lat_parts[2].strip("]"))) / 3600
+    longitude = float(eval(lon_parts[0].strip("["))) + float(eval(lon_parts[1])) / 60 + float(
+        eval(lon_parts[2].strip("]"))) / 3600
+
+    return [latitude, longitude]
+
+
+def rec_meta(path):
+    f = open(path, 'rb')
+    metadata = exifread.process_file(f)
+
+    camera_model = str(metadata.get('Image Model', 'N/A'))
+    date_taken = str(metadata.get('EXIF DateTimeOriginal', 'N/A'))
+    exposure_time = str(metadata.get('EXIF ExposureTime', 'N/A'))
+    aperture = str(metadata.get('EXIF FNumber', 'N/A'))
+    iso = str(metadata.get('EXIF ISOSpeedRatings', 'N/A'))
+    focal_length = str(metadata.get('EXIF FocalLength', 'N/A'))
+    location = str(metadata.get('GPS GPSLatitude', 'N/A')) + ', ' + str(metadata.get('GPS GPSLongitude', 'N/A'))
+
+    if 'N/A' in location:
+        location = "N/A, N/A"
+    else:
+        cl1 = location.replace("_", " ")
+        rus_loc = translate(cl1, 'ru')
+        c.execute(f'INSERT INTO dict (en, rus) VALUES ("{location}", "{rus_loc}")')
+
+    c.execute(
+        f'INSERT INTO users_photos (camera_model, date_taken, exposure_time, aperture, iso, focal_length, location) VALUES (?, ?, ?, ?, ?, ?, ?) WHERE path = "{path}"',
+        (camera_model, date_taken, exposure_time, aperture, iso, focal_length, location))
+
+
+def recogn_pict(pict_array, classword):
+    if classword == 'st':
+        with open("C:\\Users\\savel\\Desktop\\models\\start_model", 'rb') as f:
+            model = pickle.load(f)
+    else:
+        with open(f'C:\\Users\\savel\\Desktop\\models\\model_{classword}', 'rb') as f:
+            model = pickle.load(f)
+
+    lst_cls = []
+    lst_ans = model.predict(pict_array)
+    ind_ans = np.argmax(lst_ans)
+    c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{classword}"')
+    for el in c.fetchall():
+        lst_cls.append(el[0])
+
+    lst_cls_2 = []
+    for cl in lst_cls:
+        c.execute(f'SELECT classword FROM classword_num_in_model WHERE num_in_model = {ind_ans} AND classword = "{cl}"')
+        lst = c.fetchall()
+        if len(lst) != 0:
+            lst_cls_2.append(lst[0][0])
+            break
+    if len(lst_cls_2) == 0:
+        return classword
+    else:
+        clswrd = lst_cls_2[0]
+
+        c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{clswrd}"')
+        lst = c.fetchall()
+        if len(lst) == 0:
+            return clswrd
+        else:
+            return recogn_pict(pict_array, clswrd)
+
+
+def loc_det(classword, cur_plc):
+    c.execute(
+        f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{cur_plc}" AND classword != "{"clutter"}"')
+    lst = []
+    for el in c.fetchall():
+        lst.append(el[0])
+    if len(lst) == 0:
+        return cur_plc
+    else:
+        wtv_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+        sentences = lst
+        if cur_plc != 'st':
+            sentences.append(cur_plc)
+        sentence_embeddings = wtv_model.encode(sentences)
+        query = classword
+        query_embedding = wtv_model.encode(query)
+        similarities = util.pytorch_cos_sim(query_embedding, sentence_embeddings)[0]
+        top_results = similarities.topk(2)
+        similarities = similarities.numpy()
+        max_ind = np.argmax(similarities)
+        max_clswrd = sentences[max_ind]
+        if cur_plc == 'st':
+            if similarities[max_ind] > 0.2 and top_results[0][0].item() - top_results[0][1].item() > 0.1:
+                return loc_det(classword, max_clswrd)
+            else:
+                return cur_plc
+        else:
+            if max_clswrd == cur_plc:
+                return cur_plc
+            else:
+                return loc_det(classword, max_clswrd)
+
+
+def users_spcls_offer(classword):
+    wtv_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+    c.execute(f'SELECT superclassword FROM users_spcls')
+    sentences = c.fetchall()
+    for i in range(len(sentences)):
+        sentences[i] = sentences[i][0]
+    sentence_embeddings = wtv_model.encode(sentences)
+    query = classword
+    query_embedding = wtv_model.encode(query)
+    similarities = util.pytorch_cos_sim(query_embedding, sentence_embeddings)
+    k = min(len(sentences), 1)
+    top_results = similarities.topk(k)
+    lst_ans = []
+    for idx in top_results[1]:
+        lst_ans.append(sentences[idx])
+
+    if len(lst_ans) == 0:
+        return 0
+    else:
+        if top_results[0][0][0].item() >= 0.2:
+            c.execute(f'SELECT classword FROM users_spcls WHERE classword = "{classword}" and superclassword = "{lst_ans[0]}"')
+            lst = c.fetchall()
+            if len(lst) == 0:
+                return lst_ans[0]
+
+        return 0
+
+
+def col_all_cls():
+    lst_ans = []
+    c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword != "{"clutter"}"')
+    for el in c.fetchall():
+        lst_ans.append(el[0])
+
+    c.execute(f'SELECT classword FROM users_photos WHERE classword_pr = "{"fake"}"')
+    for el in c.fetchall():
+        lst_ans.append(el[0])
+
+    c.execute(f'SELECT superclassword FROM users_spcls')
+    for el in c.fetchall():
+        lst_ans.append(el[0])
+
+    return lst_ans
+
+
+def photo_input(path):
+    fl = 0
+    pict = Image.open(path)
+    pict = pict.resize((32, 32))
+    pict = np.array(pict)
+    pict = pict.astype('float32')
+    pict = pict / 255.0
+    pict = np.expand_dims(pict, axis=0)
+    classword = recogn_pict(pict, 'st')
+    if classword == 'clutter':
+        pict = Image.open(path)
+        plt.imshow(pict)
+        plt.axis('off')
+        plt.show()
+        print('Обнаружен новый класс. Пожалуйста, напишите то, что вы здесь фотографировали.')
+        inp_classword_1 = input() #предлагаем только из фантомных суперклассов, из активных классов и из всех оставшихся классов в users(col_all_cls)
+        if inp_classword_1 != 'ничего не подошло':
+            c.execute(f'INSERT INTO users_photos (path, classword) VALUES (?, ?)', (path, inp_classword_1))
+            f_spcl = users_spcls_offer(inp_classword_1)
+            if f_spcl:
+                c.execute(f'SELECT rus FROM dict WHERE en = {f_spcl}')
+                spcl_rus = c.fetchall()[0][0]
+                print(f'Добавить этот класс в ближайший по смыслу пользовательский гиперкласс - {spcl_rus}?')
+                ans = input()
+                if ans == 'да':
+                    c.execute(f'INSERT INTO users_spcls (classword, superclassword) VALUES (?, ?)',
+                              (inp_classword_1, f_spcl))
+
+
+        else:
+            inp_classword_2 = input() #предлагаем из classes где is used = 0
+            if inp_classword_2 != 'ничего не подошло':
+                c.execute(f'INSERT INTO users_photos (path, classword) VALUES (?, ?)', (path, inp_classword_2))
+                fl = 1
+                print(f"Создан новый класс - {inp_classword_2}. Картинке присвоен этот класс. ")
+                f_spcl = users_spcls_offer(inp_classword_2)
+                if f_spcl:
+                    c.execute(f'SELECT rus FROM dict WHERE en = {f_spcl}')
+                    spcl_rus = c.fetchall()[0][0]
+                    print(f'Добавить этот класс в ближайший по смыслу пользовательский гиперкласс - {spcl_rus}?')
+                    ans = input()
+                    if ans == 'да':
+                        c.execute(f'INSERT INTO users_spcls (classword, superclassword) VALUES (?, ?)',
+                                  (inp_classword_2, f_spcl))
+            else:
+                print("Допишите пожалуйста до конца и нажмите 'Далее'.")
+                inp_classword_3 = input()
+                inp_classword_3 = inp_classword_3.replace(' ', '_')
+                cl1 = inp_classword_3.replace("_", " ")
+                en_cl = translate(cl1, 'en')
+                en_cl.replace(" ", "_")
+                c.execute(f'INSERT INTO users_photos (path, classword, classword_pr) VALUES (?, ?, ?)', (path, en_cl, 'fake'))
+                print(f"Создан новый класс - {inp_classword_3}. Картинке присвоен этот класс. ")
+                c.execute(f'INSERT INTO dict (en, rus) VALUES ("{en_cl}", "{inp_classword_3}")')
+                f_spcl = users_spcls_offer(inp_classword_3)
+                if f_spcl:
+                    c.execute(f'SELECT rus FROM dict WHERE en = {f_spcl}')
+                    spcl_rus = c.fetchall()[0][0]
+                    print(f'Добавить этот класс в ближайший по смыслу пользовательский гиперкласс - {spcl_rus}?')
+                    ans = input()
+                    if ans == 'да':
+                        c.execute(f'INSERT INTO users_spcls (classword, superclassword) VALUES (?, ?)',
+                                  (inp_classword_3, f_spcl))
+
+        if fl == 1:
+            classword_2 = inp_classword_2
+            plc_clswrd = loc_det(classword_2, 'st')
+            lst_new_ids = []
+            c.execute(f'SELECT id FROM classes WHERE classword = "{classword_2}" AND is_used = {0}')
+            for el in c.fetchall():
+                lst_new_ids.append(el[0])
+
+            if plc_clswrd in ['st', 'wild_animals', 'pets', 'fish', 'flowers', 'food_containers', 'fruit', 'vegetables',
+                              'electronic_devices', 'furniture', 'insects', 'buildings', 'nature', 'people', 'trees',
+                              'vehicles']:
+                upd_model(lst_new_ids, classword_2, plc_clswrd)
+            else:
+                upd_model_2(lst_new_ids, classword_2, plc_clswrd)
+            if plc_clswrd != 'st':
+                c.execute(f'SELECT classword_pred FROM classword_classword_pred WHERE classword = "{plc_clswrd}"')
+                recur_col_for_model(c.fetchall()[0][0])
+
+    else:
+        c.execute(f'INSERT INTO users_photos (path, classword) VALUES ("{path}", "{classword}")')
+
+    rec_meta(path)
+    return
+
+
+conn.commit()
+conn.close()
