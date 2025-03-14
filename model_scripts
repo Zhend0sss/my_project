@@ -1,3 +1,8 @@
+# функции для сборки картинок и меток из БД для обучения моделей
+
+
+
+
 import numpy as np
 import os
 
@@ -33,7 +38,7 @@ conn = sqlite3.connect(path_BD)
 c = conn.cursor()
 
 
-def col_fin_id(id, num_cl):
+def col_fin_id(id, num_cl): # сборка картинок по id класса
     x = np.array([])
     y = np.array([])
     c.execute(f"SELECT classword, dataset FROM classes WHERE id = {id}")
@@ -72,7 +77,7 @@ def col_fin_id(id, num_cl):
     return train_test_split(x, y, train_size=0.8, random_state=42)
 
 
-def col_clwd(classword, num_cl):
+def col_clwd(classword, num_cl): # сборка классворда
     # c.execute(f"SELECT classword, dataset FROM classes WHERE id = {id}")
     # lst_fetch = c.fetchall()
     # classword, dataset = lst_fetch[0][0], lst_fetch[0][1]
@@ -132,7 +137,7 @@ def col_clwd(classword, num_cl):
         return [x_tr, x_tst, y_tr, y_tst]
 
 
-def col_for_model(classword):
+def col_for_model(classword): # сборка всех классвордов для данной модели
     c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{classword}"')
 
     lst_classwords = []
@@ -180,7 +185,7 @@ def col_for_model(classword):
     return [x_train_org, x_test_org, y_train_org, y_test_org]
 
 
-def class_others(classword, num_cls):
+def class_others(classword, num_cls): # сборка класса others
     x_train = np.array([])
     x_test = np.array([])
     y_train = np.array([])
@@ -211,7 +216,7 @@ def class_others(classword, num_cls):
     return [x_train, x_test, y_train, y_test]
 
 
-def recur_col_for_model(classword):
+def recur_col_for_model(classword): # рекурентная сбока всех классвордов данной модели и детей этих классвордов
     x_train, x_test, y_train, y_test = col_for_model(classword)
     c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{classword}"')
     num_cls = len(c.fetchall())
@@ -235,7 +240,7 @@ def recur_col_for_model(classword):
         return
 
 
-def upd_clutter():
+def upd_clutter(): # функция обновления класса для мусора - 'clutter'
     c.execute(f'DELETE FROM class_classword WHERE classword = "{"clutter"}"')
 
     c.execute(f'SElECT id FROM classword_classword_pred WHERE classword_pred = "{"st"}"')
@@ -283,7 +288,7 @@ def upd_clutter():
         pickle.dump(model, f)
 
 
-def upd_model(lst_new_ids, classword, classword_pred):
+def upd_model(lst_new_ids, classword, classword_pred): # функция сборки необходимых данных и обучение модели на новых данных
     fl = 0
     for i in range(len(lst_new_ids)):
         c.execute(f'UPDATE classes SET is_used = 1 WHERE id = {lst_new_ids[i]}')
@@ -563,7 +568,7 @@ def upd_model_2(lst_new_ids, classword, classword_pred):
     remarking(classword_pred)
 
 
-def remarking(classword):
+def remarking(classword): # переразметка датасета с пользовательскими фотографиями вследствие добавления нового класса
     with open(f'C:\\Users\\savel\\Desktop\\models\\model_{classword}', 'rb') as f:
         model = pickle.load(f)
 
