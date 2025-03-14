@@ -1,3 +1,8 @@
+# скрипт по расппознаванию введеной пользователем фотографии и сохранению ее в БД, а также по сбору метаданных этой фотографии с дальнейшим их сохранением в БД
+
+
+
+
 import numpy as np
 import os
 import exifread
@@ -48,7 +53,7 @@ def convert_to_coords(coords_str):
     return [latitude, longitude]
 
 
-def rec_meta(path):
+def rec_meta(path): # функция сбора и записи метаданных
     f = open(path, 'rb')
     metadata = exifread.process_file(f)
 
@@ -72,7 +77,7 @@ def rec_meta(path):
         (camera_model, date_taken, exposure_time, aperture, iso, focal_length, location))
 
 
-def recogn_pict(pict_array, classword):
+def recogn_pict(pict_array, classword): # функция распознавания введенной фотографии с помощью дерева моделей
     if classword == 'st':
         with open("C:\\Users\\savel\\Desktop\\models\\start_model", 'rb') as f:
             model = pickle.load(f)
@@ -107,7 +112,7 @@ def recogn_pict(pict_array, classword):
             return recogn_pict(pict_array, clswrd)
 
 
-def loc_det(classword, cur_plc):
+def loc_det(classword, cur_plc): # функция поиска наиближайшего по расстоянию в векторном пространстве слов класса к данной метке
     c.execute(
         f'SELECT classword FROM classword_classword_pred WHERE classword_pred = "{cur_plc}" AND classword != "{"clutter"}"')
     lst = []
@@ -140,7 +145,7 @@ def loc_det(classword, cur_plc):
                 return loc_det(classword, max_clswrd)
 
 
-def users_spcls_offer(classword):
+def users_spcls_offer(classword): # предложение пользователь дополнительно поместить фотографию в пользовательский класс
     wtv_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
     c.execute(f'SELECT superclassword FROM users_spcls')
     sentences = c.fetchall()
@@ -168,7 +173,7 @@ def users_spcls_offer(classword):
         return 0
 
 
-def col_all_cls():
+def col_all_cls(): # сбор всех меток
     lst_ans = []
     c.execute(f'SELECT classword FROM classword_classword_pred WHERE classword != "{"clutter"}"')
     for el in c.fetchall():
