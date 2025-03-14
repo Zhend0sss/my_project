@@ -1,3 +1,8 @@
+# подключение архитектуры efficientnet_B7
+
+
+
+
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.applications import EfficientNetB7
@@ -10,7 +15,7 @@ import os
 
 model_eff_b7 = EfficientNetB7(weights='imagenet', include_top=True)
 
-def resize_img(path='', pict=None):
+def resize_img(path='', pict=None): # функция изменения размера фотографии на 600*600(требуемый размер efficientnet_B7) с сохранением пропорций и обрезкой крайних пикселей
 
   if not path:
     image = Image.fromarray(pict)
@@ -37,6 +42,9 @@ def resize_img(path='', pict=None):
 
   return np.array(cropped_image)
 
+
+
+# словарь меток архитектуры efficientnet_B7
 imagenet_dict = {0: 'tench, Tinca tinca',
  1: 'goldfish, Carassius auratus',
  2: 'great white shark, white shark, man-eater, man-eating shark, Carcharodon carcharias',
