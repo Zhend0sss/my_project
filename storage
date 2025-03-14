@@ -1,6 +1,6 @@
 Ссылка на google диск: https://drive.google.com/drive/folders/1qHb5LoAY6Br6XloJ7vMCsZDTomKGHfEI?usp=sharing
 
-Папка models - 16 предобученных на cifar100 моделей с своим уникальным классвордом
+Папка models - 16 предобученных на cifar100 моделей с своим уникальным классвордом(предобучены на своей уникальной части датасета)
 
 datasets.npy.zip - сжатый датасет с картинками из 5 скачанных датасетов: cifar10, cifar100, labelme, coltech, food101
 
@@ -98,19 +98,27 @@ table dict
 
 
 
-table food food 4146 CREATE TABLE food
+# датасет food101
+table food
              (id INTEGER PRIMARY KEY,
              path TEXT,
              type TEXT,
              classword TEXT
              )
-table coltech coltech 3098 CREATE TABLE coltech
+
+
+
+# датасет coltech
+table coltech
              (id INTEGER PRIMARY KEY,
              path TEXT,
              type TEXT,
              classword TEXT
              )
-table labelme labelme 2368 CREATE TABLE labelme
+
+
+# датасет labelme
+table labelme
              (id INTEGER PRIMARY KEY,
              path TEXT,
              type TEXT,
