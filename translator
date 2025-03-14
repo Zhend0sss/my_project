@@ -1,3 +1,8 @@
+# функция перевода меток с английского на русский и запись обеих версий в БД в соответствующйю таблицу
+
+
+
+
 from googletrans import Translator
 import sqlite3
 path_BD = "C:\\Users\\savel\\Desktop\\BD.db"
