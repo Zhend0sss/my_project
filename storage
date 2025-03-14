@@ -1,2 +1,118 @@
 Ссылка на google диск: https://drive.google.com/drive/folders/1qHb5LoAY6Br6XloJ7vMCsZDTomKGHfEI?usp=sharing
 
+Папка models - 16 предобученных на cifar100 моделей с своим уникальным классвордом
+
+datasets.npy.zip - сжатый датасет с картинками из 5 скачанных датасетов: cifar10, cifar100, labelme, coltech, food101
+
+BD.db - база данных(БД) в sqlite3 со следующими таблицами:
+
+# таблица пользовательских фотографий
+table users_photos
+             (id INTEGER PRIMARY KEY,
+             path TEXT,
+             classword TEXT,
+             classword_pr TEXT,
+             camera_model TEXT,
+             date_taken TEXT,
+             exposure_time TEXT,
+             aperture TEXT,
+             iso TEXT,
+             focal_length TEXT,
+             location TEXT)
+
+
+# датасет cifar100
+table cifar
+             (id INTEGER PRIMARY KEY,
+             path TEXT,
+             type TEXT,
+             classword TEXT,
+             classword_pr TEXT
+             )
+
+
+# таблица моделей с указанием ссылки на саму модель и ее предшественника в дереве моделей, а также классворд этой модели
+table models
+             (id INTEGER PRIMARY KEY,
+             keyword TEXT,
+             path_cur TEXT,
+             path_pr TEXT,
+             is_last_model INTEGER
+             )
+
+
+# датасет cifar10
+table cifar10
+             (id INTEGER PRIMARY KEY,
+             path TEXT,
+             type TEXT,
+             classword TEXT
+             )
+
+
+# таблица всех скачанных классов с указанием датасета, откуда скачан класс и id этого класса
+table classes
+             (id INTEGER PRIMARY KEY,
+             classword TEXT,
+             is_used INTEGER,
+             dataset TEXT
+             , model 'float', cont_model 'TEXT')
+
+
+# таблица, сопоставляющая скачанные классы и классворды в дереве моделей
+table class_classword
+             (id INTEGER PRIMARY KEY,
+             class_id INTEGER,
+             classword TEXT
+             )
+
+
+# таблица с указанием предка каждого классворда в дереве
+table classword_classword_pred
+             (id INTEGER PRIMARY KEY,
+             classword TEXT,
+             classword_pred TEXT
+             )
+
+
+# таблица с номерами каждого классворда в своей модели
+table classword_num_in_model
+             (id INTEGER PRIMARY KEY,
+             classword TEXT,
+             num_in_model INTEGER
+             )
+
+
+# таблица с пользовательскими классвордами
+table users_spcls
+             (id INTEGER PRIMARY KEY,
+             classword TEXT,
+             superclassword TEXT
+             )
+
+
+# англо-русский словарь всех используемых меток в системе
+table dict
+          (en TEXT,
+          rus TEXT)
+
+
+
+table food food 4146 CREATE TABLE food
+             (id INTEGER PRIMARY KEY,
+             path TEXT,
+             type TEXT,
+             classword TEXT
+             )
+table coltech coltech 3098 CREATE TABLE coltech
+             (id INTEGER PRIMARY KEY,
+             path TEXT,
+             type TEXT,
+             classword TEXT
+             )
+table labelme labelme 2368 CREATE TABLE labelme
+             (id INTEGER PRIMARY KEY,
+             path TEXT,
+             type TEXT,
+             classword TEXT
+             )
