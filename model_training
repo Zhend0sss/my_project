@@ -1,3 +1,8 @@
+# обучение внутренней модели
+
+
+
+
 from os import listdir
 
 import keras
@@ -44,6 +49,7 @@ c = conn.cursor()
 f = 1
 
 
+# словарь параметров внутренней модели
 map_pars = {
     "level" : 2,
     "cut_size" : 6000,
@@ -82,7 +88,7 @@ x_test = []
 y_test = []
 
 
-class StopAtAccuracy(Callback):
+class StopAtAccuracy(Callback): # коллбек на достижение целевой точности
     def __init__(self, target_accuracy):
         super(StopAtAccuracy, self).__init__()
         self.target_accuracy = target_accuracy
@@ -107,7 +113,7 @@ lr_callback = ReduceLROnPlateau(monitor="val_accuracy", factor=map_pars["lr_fact
                            cooldown=0, min_lr=0.00001)
 
 
-def reconstructing(history):
+def reconstructing(history): # функция изменения словаря параметров в зависмости от динамики изменения метрик(accuracy, loss, val_acuuracy, val_loss) при обучении
     lst_acc = history.history['accuracy'][-int(len(history.history['accuracy']) * 0.1):]
     lst_val_acc = history.history['val_accuracy'][-int(len(history.history['val_accuracy']) * 0.1):]
     lst_loss = history.history['loss'][-int(len(history.history['loss']) * 0.1):]
@@ -191,7 +197,7 @@ def reconstructing(history):
 #       что-то сделать с factor и decay_rate?
 
 
-def build_model(x_train_shape, num_cls, map_pars):
+def build_model(x_train_shape, num_cls, map_pars): # функция сборки внутренней модели по словарю параметров
     model = Sequential()
 
     for i in range(map_pars["am_1_blocks"]):
@@ -232,7 +238,7 @@ def build_model(x_train_shape, num_cls, map_pars):
 
 k = 1
 
-def train_model(num_cls, x_train_org, y_train_org, x_test, y_test, epochs=map_pars["epochs"], batch_size=map_pars["batch_size"]):
+def train_model(num_cls, x_train_org, y_train_org, x_test, y_test, epochs=map_pars["epochs"], batch_size=map_pars["batch_size"]): # функция обучения внутренней модели
     global k
 
     x_train, x_val, y_train, y_val = train_test_split(x_train_org, y_train_org, train_size=0.8, random_state=42)
@@ -493,7 +499,7 @@ def train_model_cifar100(num_cls, x_train_org, y_train_org, x_test, y_test, path
 
 
 
-def sep_cls(num_cls, x_test, y_test, model_path):
+def sep_cls(num_cls, x_test, y_test, model_path): # функция разделения множества классов на 2 суперкласса по качеству распознавания их моделью
 
     y_test = to_categorical(y_test, num_cls)
 
@@ -535,7 +541,7 @@ def sep_cls(num_cls, x_test, y_test, model_path):
 
 
 
-def build_plot(history, path):
+def build_plot(history, path): # функция построения графиков loss-epoch и accuracy-epoch, val_loss-epoch и val_accuracy-epoch с указанием экстремумов на валидации
     train_acc = history.history["accuracy"]
     val_acc = history.history["val_accuracy"]
     train_loss = history.history["loss"]
@@ -647,7 +653,7 @@ load_cifar10_data()
 
 
 
-def augmentation(x_train, y_train):
+def augmentation(x_train, y_train): # функция аугментации данного датасета разворотом картинок на 90, 180 и 270 градусов
     x_train_ret = x_train
     y_train_ret = y_train
 
