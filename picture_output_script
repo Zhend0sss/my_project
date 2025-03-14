@@ -1,3 +1,8 @@
+# скрипт по взаимодействию системы с пользователем для вывода фотографий по введенной метке с учетом метаданных
+
+
+
+
 import numpy as np
 import os
 import exifread
@@ -41,7 +46,7 @@ c = conn.cursor()
 #              )''')
 
 
-def col_users_clswrd(classword):
+def col_users_clswrd(classword): # функция сбора всех меток
     lst_ans = []
     c.execute(f'SELECT path FROM users_photos WHERE classword = "{classword}"')
     for el in c.fetchall():
