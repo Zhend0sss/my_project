@@ -1,14 +1,107 @@
-&emsp;Я Савельев Евгений Евгениьевич, студент первого курса Университета Иннополис. Это репозиторий с файлами с backend-ом к моему проекту.  
-&emsp;Идея проекта - создать приложение на основе нейросети, способное самостоятельно распознавать и классифицировать пользовательские фотографии (с возможным вмешательством пользователя) и затем, по пользвательскому запросу выдавать
-нужные фотографии из галереи. Было решено построить дерево моделей по лексическому значению классов, чтобы лучше и точнее распознавать каждый, даже самый мелкий класс. Для этого производится спуск по этому дереву с последовательным 
-запуском очередной модели. Также была задействована внешняя архитектура EfficientNet-B7. Все картинки, классы, модели и информация к ним сохранялись в базу данных.  
-&emsp;Точность модели EfficientNet-B7 на обучающих данных - 84.4%. Точность внутренних моделей на обучающих данных - 60 - 70%.  
-&emsp;Рассматриваю вариант в будущем выпустить это приложение в продакшн. Тогда будет необходимо написать frontend, а также арендовать сервер для хранения баз данных. Прошу оценить и учесть ту работу, которую вам представляю. Спасибо.
+# Photo Classification & Retrieval Backend
 
+Проект backend-системы для распознавания, классификации и поиска пользовательских фотографий по содержимому и метаданным.
 
-&emsp;I am Evgeny Savelev, a first-year student at Innopolis University. This is a repository containing the backend files for my project.  
-&emsp;The idea of the project is to create an application based on a neural network that can independently recognize and classify user photos
-(with possible user intervention) and then display the requested photos from the gallery based on user queries. It was decided to build a tree of models based on the lexical meaning of classes in order to better and more accurately recognize each class, even the smallest ones. For this purpose, a descent down this tree is performed with a sequential launch of the next model. An external architecture EfficientNet-B7 was also utilized. All images, classes, 
-models, and related information were stored in a database.  
-&emsp;The accuracy of the EfficientNet-B7 model on the training data is 84.4%. The accuracy of the internal models on the training data is 60% - 70%.  
-&emsp;I'm considering releasing this application to production in the future. This will require writing a frontend and renting a server to host the databases. I kindly ask you to evaluate and consider the work I am presenting to you. Thank you.
+## О проекте
+
+Идея проекта — создать приложение на базе нейросетей, которое:
+
+- автоматически определяет класс загруженной фотографии;
+- при необходимости запрашивает уточнение у пользователя и дообучает внутренние модели;
+- сохраняет фотографии, метаданные и связи классов в SQLite;
+- по текстовому запросу пользователя возвращает релевантные изображения из галереи.
+
+В основе лежит **дерево моделей**: система последовательно проходит по иерархии классов от корня к более узким категориям.  
+Дополнительно используется внешняя архитектура **EfficientNet-B7**.
+
+## Текущее состояние
+
+- Точность EfficientNet-B7 на обучающих данных: **84.4%**.
+- Точность внутренних моделей: **60–70%**.
+- Реализация сфокусирована на backend-логике и экспериментах с обучением.
+- Для production-версии потребуются frontend и серверная инфраструктура.
+
+## Архитектура (высокоуровневая)
+
+1. Фото пользователя подается на распознавание.
+2. Система проходит по дереву моделей и выбирает наиболее подходящий класс.
+3. Если класс новый/неопределенный — запускается сценарий с участием пользователя:
+   - создание нового класса или привязка к существующему;
+   - обновление связей классов;
+   - дообучение затронутых моделей.
+4. В базу записываются:
+   - путь до изображения;
+   - итоговый класс;
+   - EXIF-метаданные (камера, дата, ISO, геолокация и т.д.);
+   - словарь переводов меток (en/ru).
+5. Поисковый скрипт фильтрует изображения по классу и метаданным (время, дата, место).
+
+## Структура репозитория
+
+- `/tmp/workspace/Zhend0sss/my_project/input_picture_spript`  
+  Логика обработки входного изображения: классификация, интерактивное уточнение класса, запись метаданных в БД, запуск обновления моделей.
+
+- `/tmp/workspace/Zhend0sss/my_project/picture_output_script`  
+  Логика поиска и вывода фотографий по пользовательскому запросу с учетом класса и метаданных.
+
+- `/tmp/workspace/Zhend0sss/my_project/model_scripts`  
+  Подготовка датасетов из БД, формирование выборок, обновление дерева классов и переобучение нужных моделей.
+
+- `/tmp/workspace/Zhend0sss/my_project/model_training`  
+  Сборка и обучение внутренних CNN-моделей, callbacks и адаптация параметров обучения.
+
+- `/tmp/workspace/Zhend0sss/my_project/efficientnet_b7`  
+  Подключение внешней модели EfficientNet-B7 и служебные функции предобработки.
+
+- `/tmp/workspace/Zhend0sss/my_project/translator`  
+  Перевод меток между английским и русским языками и запись в таблицу словаря.
+
+- `/tmp/workspace/Zhend0sss/my_project/storage`  
+  Описание внешнего хранилища (Google Drive) и структуры SQLite-базы.
+
+- `/tmp/workspace/Zhend0sss/my_project/start`  
+  Вспомогательный файл запуска (в текущем состоянии без логики).
+
+## Данные и модели (Google Drive)
+
+Актуальные ссылки на артефакты в Google Drive:
+
+- `models` — набор предобученных моделей:  
+  https://drive.google.com/drive/folders/1rGMJx_Ayeghu6REUJSiyd1WENt8F6xnE?usp=drive_link
+- `datasets.npy.zip` — сжатый датасет, собранный из `cifar10`, `cifar100`, `labelme`, `Caltech` (в файлах проекта встречается как `coltech`), `food101`:  
+  https://drive.google.com/file/d/1jLSkitNmflum-v6ntUsQHShuXALzGpcF/view?usp=drive_link
+- `BD.db` — SQLite-база данных с таблицами:
+  https://drive.google.com/file/d/1mK_-L51tEtlmlATntEfomu958D3Mo7xB/view?usp=drive_link
+  - пользовательских фото;
+  - датасетов;
+  - классов и их соответствий;
+  - дерева меток classword;
+  - моделей;
+  - пользовательских надклассов;
+  - словаря переводов.
+
+## Зависимости
+
+По коду используются библиотеки:
+
+- `tensorflow` / `keras`
+- `numpy`
+- `scikit-learn`
+- `Pillow`
+- `matplotlib`
+- `sqlite3` (стандартная библиотека Python)
+- `googletrans`
+- `sentence-transformers`
+- `exifread`
+- `geopy`
+- `pickle`
+
+## Важные замечания
+
+- В скриптах используются абсолютные Windows-пути (например, `C:\\Users\\savel\\Desktop\\...`), поэтому перед запуском необходимо адаптировать пути под вашу среду.
+- Проект ориентирован на исследовательский workflow и интерактивные сценарии в консоли.
+
+## Author
+
+Evgeny Savelev  
+Innopolis University
