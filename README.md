@@ -38,25 +38,25 @@
 
 ## Структура репозитория
 
-- `/tmp/workspace/Zhend0sss/my_project/input_picture_spript`  
+- `my_project/input_picture_spript`  
   Логика обработки входного изображения: классификация, интерактивное уточнение класса, запись метаданных в БД, запуск обновления моделей.
 
-- `/tmp/workspace/Zhend0sss/my_project/picture_output_script`  
+- `my_project/picture_output_script`  
   Логика поиска и вывода фотографий по пользовательскому запросу с учетом класса и метаданных.
 
-- `/tmp/workspace/Zhend0sss/my_project/model_scripts`  
+- `my_project/model_scripts`  
   Подготовка датасетов из БД, формирование выборок, обновление дерева классов и переобучение нужных моделей.
 
-- `/tmp/workspace/Zhend0sss/my_project/model_training`  
+- `my_project/model_training`  
   Сборка и обучение внутренних CNN-моделей, callbacks и адаптация параметров обучения.
 
-- `/tmp/workspace/Zhend0sss/my_project/efficientnet_b7`  
+- `my_project/efficientnet_b7`  
   Подключение внешней модели EfficientNet-B7 и служебные функции предобработки.
 
-- `/tmp/workspace/Zhend0sss/my_project/translator`  
+- `my_project/translator`  
   Перевод меток между английским и русским языками и запись в таблицу словаря.
 
-- `/tmp/workspace/Zhend0sss/my_project/storage`  
+- `my_project/storage`  
   Описание внешнего хранилища (Google Drive) и структуры SQLite-базы.
 
 - `/tmp/workspace/Zhend0sss/my_project/start`  
@@ -103,5 +103,5 @@
 
 ## Author
 
-Evgeny Savelev  
+Evgenii Savelev  
 Innopolis University
