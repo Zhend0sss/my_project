@@ -64,11 +64,14 @@
 
 ## Данные и модели (Google Drive)
 
-В `storage` указана ссылка на папку Google Drive, где размещены артефакты проекта:
+Актуальные ссылки на артефакты в Google Drive:
 
-- `models` — набор предобученных моделей;
-- `datasets.npy.zip` — сжатый датасет, собранный из `cifar10`, `cifar100`, `labelme`, `Caltech` (в файлах проекта встречается как `coltech`), `food101`;
+- `models` — набор предобученных моделей:  
+  https://drive.google.com/drive/folders/1rGMJx_Ayeghu6REUJSiyd1WENt8F6xnE?usp=drive_link
+- `datasets.npy.zip` — сжатый датасет, собранный из `cifar10`, `cifar100`, `labelme`, `Caltech` (в файлах проекта встречается как `coltech`), `food101`:  
+  https://drive.google.com/file/d/1jLSkitNmflum-v6ntUsQHShuXALzGpcF/view?usp=drive_link
 - `BD.db` — SQLite-база данных с таблицами:
+  https://drive.google.com/file/d/1mK_-L51tEtlmlATntEfomu958D3Mo7xB/view?usp=drive_link
   - пользовательских фото;
   - датасетов;
   - классов и их соответствий;
